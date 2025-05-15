@@ -1,0 +1,43 @@
+/* 测试BEM样式 */
+.block {
+  color: black;
+  
+  /* 元素 */
+  &__element {
+    color: red;
+    
+    /* 元素的修饰符 */
+    &--modifier {
+      color: blue;
+    }
+  }
+  
+  /* 另一个元素 */
+  &__another-element {
+    color: green;
+    
+    &--special {
+      font-weight: bold;
+    }
+  }
+}
+
+/* 多个父选择器 */
+.component, .widget {
+  background: #ccc;
+  
+  &__item {
+    padding: 10px;
+  }
+}
+
+/* 多层级嵌套测试 */
+.multi {
+  &__level1 {
+    &__level2 {
+      &__level3 {
+        margin: 0;
+      }
+    }
+  }
+} 

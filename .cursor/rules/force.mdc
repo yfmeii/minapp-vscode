@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+每次修改完代码必须编译通过并重新生成 vsix 文件
+你可以操作终端

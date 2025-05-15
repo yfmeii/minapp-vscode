@@ -16,7 +16,7 @@ export default class ActiveTextEditorListener {
     // 首次立即更新，文件变化延迟更新
     if (window.activeTextEditor) this.onChange(window.activeTextEditor)
 
-    let tid: NodeJS.Timer
+    let tid: NodeJS.Timeout
     const update = (editor: TextEditor, resetCache?: boolean) => {
       if (!editor) return
       if (tid) clearTimeout(tid)

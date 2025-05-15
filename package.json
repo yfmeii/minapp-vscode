@@ -254,7 +254,10 @@
           "description": "wxml 格式化工具"
         },
         "minapp-vscode.jsBeautifyHtml": {
-          "type": ["string", "object"],
+          "type": [
+            "string",
+            "object"
+          ],
           "default": {
             "content_unformatted": "text",
             "wrap_attributes": "force",
@@ -374,6 +377,9 @@
   },
   "dependencies": {
     "json5": "^2.2.3",
+    "postcss": "^8.5.3",
+    "postcss-scss": "^4.0.9",
+    "postcss-selector-parser": "^7.1.0",
     "prettier": "^1.19.1",
     "read-pkg-up": "^7.0.1",
     "resolve": "^1.20.0",
