@@ -109,9 +109,10 @@ function walkRules(
   styles: BemStyle[],
   filePath: string,
   comments: { [line: number]: string },
-  content: string
+  content: string,
+  processedClassNames: Set<string> = new Set<string>()
 ): void {
-  log(`开始遍历规则，当前父选择器: ${JSON.stringify(parentSelectors)}`);
+  log(`开始遍历规则，当前父选择器: ${JSON.stringify(parentSelectors)}`);  
   
   node.walkRules(rule => {
     const selectors = rule.selectors || [rule.selector];
@@ -170,6 +171,17 @@ function walkRules(
         
         for (const className of classNames) {
           const name = className.substring(1); // 移除前导点
+          
+          // 检查该类名是否已经处理过，如果是则跳过
+          if (processedClassNames.has(name)) {
+            log(`跳过已处理过的类名: ${name}`);
+            continue;
+          }
+          
+          // 将类名添加到已处理集合中
+          processedClassNames.add(name);
+          log(`添加类名 ${name} 到已处理集合`);
+          
           styles.push({
             name,
             pos: position,
@@ -188,7 +200,7 @@ function walkRules(
     // 如果规则有子节点，递归处理
     if (rule.nodes && rule.nodes.length > 0) {
       log(`递归处理嵌套规则，父选择器: ${JSON.stringify(normalizedSelectors)}`);
-      walkRules(rule, normalizedSelectors, styles, filePath, comments, content);
+      walkRules(rule, normalizedSelectors, styles, filePath, comments, content, processedClassNames);
     }
   });
 }
@@ -318,9 +330,12 @@ export function parseStyleWithPostcss(filePath: string): BemStyle[] {
     
     const styles: BemStyle[] = [];
     
+    // 初始化已处理的类名集合
+    const processedClassNames = new Set<string>();
+    
     // 开始解析
     log(`开始遍历规则树`);
-    walkRules(result.root, [], styles, filePath, comments, content);
+    walkRules(result.root, [], styles, filePath, comments, content, processedClassNames);
     
     // 更新缓存
     fileCache[filePath] = {
