@@ -5,7 +5,6 @@ import { getClass } from './lib/StyleFile'
 import { getProp } from './lib/ScriptFile'
 import { definitionTagName } from '../common/src'
 import { getCustomOptions, getLanguage } from './lib/helper'
-import * as fs from 'fs'
 
 // 获取或创建输出通道
 let outputChannel: OutputChannel | null = null;
@@ -139,29 +138,16 @@ export class PropDefinitionProvider implements DefinitionProvider {
         // 检查完全匹配
         if (sty.name === className) {
           log(`找到完全匹配的类名: ${sty.name} 在 ${styfile.file} 的位置行=${sty.pos.line}, 列=${sty.pos.character}`);
-          const start = sty.pos;
           
-          // 创建一个选中整行的 Range
-          // 读取文件内容获取该行的长度
-          try {
-            const content = fs.readFileSync(styfile.file, 'utf8');
-            const lines = content.split('\n');
-            if (sty.pos.line < lines.length) {
-              const line = lines[sty.pos.line];
-              const lineStart = new Position(sty.pos.line, 0);
-              const lineEnd = new Position(sty.pos.line, line.length);
-              log(`选中整行: "${line}"`);
-              exactMatchLocs.push(new Location(Uri.file(styfile.file), new Range(lineStart, lineEnd)));
-            } else {
-              // 回退到只选中类名
-              const end = new Position(start.line, start.character + className.length);
-              exactMatchLocs.push(new Location(Uri.file(styfile.file), new Range(start, end)));
-            }
-          } catch (error) {
-            log(`读取文件失败: ${error}`);
-            // 回退到只选中类名
-            const end = new Position(start.line, start.character + className.length);
-            exactMatchLocs.push(new Location(Uri.file(styfile.file), new Range(start, end)));
+          // 使用PostCSS解析出的选择器范围信息
+          if (sty.selectorRange) {
+            log(`使用选择器范围信息: 从行 ${sty.selectorRange.start.line} 到行 ${sty.selectorRange.end.line}`);
+            exactMatchLocs.push(new Location(Uri.file(styfile.file), new Range(sty.selectorRange.start, sty.selectorRange.end)));
+          } else {
+            // 如果没有选择器范围信息（向后兼容），只选中类名
+            log(`没有选择器范围信息，只选中类名`);
+            const end = new Position(sty.pos.line, sty.pos.character + className.length);
+            exactMatchLocs.push(new Location(Uri.file(styfile.file), new Range(sty.pos, end)));
           }
           return;
         }
@@ -178,28 +164,16 @@ export class PropDefinitionProvider implements DefinitionProvider {
           // 如果当前类名是 BEM 基础类名或 BEM 链的一部分
           if (sty.name === bemClass || className.startsWith(sty.name + '__') || className.startsWith(sty.name + '--')) {
             log(`找到 BEM 匹配: 搜索的 "${className}" 与样式 "${sty.name}" 匹配，在 ${styfile.file} 的位置行=${sty.pos.line}, 列=${sty.pos.character}`);
-            const start = sty.pos;
             
-            // 创建一个选中整行的 Range
-            try {
-              const content = fs.readFileSync(styfile.file, 'utf8');
-              const lines = content.split('\n');
-              if (sty.pos.line < lines.length) {
-                const line = lines[sty.pos.line];
-                const lineStart = new Position(sty.pos.line, 0);
-                const lineEnd = new Position(sty.pos.line, line.length);
-                log(`选中整行: "${line}"`);
-                bemMatchLocs.push(new Location(Uri.file(styfile.file), new Range(lineStart, lineEnd)));
-              } else {
-                // 回退到只选中类名
-                const end = new Position(start.line, start.character + sty.name.length);
-                bemMatchLocs.push(new Location(Uri.file(styfile.file), new Range(start, end)));
-              }
-            } catch (error) {
-              log(`读取文件失败: ${error}`);
-              // 回退到只选中类名
-              const end = new Position(start.line, start.character + sty.name.length);
-              bemMatchLocs.push(new Location(Uri.file(styfile.file), new Range(start, end)));
+            // 使用PostCSS解析出的选择器范围信息
+            if (sty.selectorRange) {
+              log(`使用 BEM 选择器范围信息: 从行 ${sty.selectorRange.start.line} 到行 ${sty.selectorRange.end.line}`);
+              bemMatchLocs.push(new Location(Uri.file(styfile.file), new Range(sty.selectorRange.start, sty.selectorRange.end)));
+            } else {
+              // 如果没有选择器范围信息（向后兼容），只选中类名
+              log(`没有 BEM 选择器范围信息，只选中类名`);
+              const end = new Position(sty.pos.line, sty.pos.character + sty.name.length);
+              bemMatchLocs.push(new Location(Uri.file(styfile.file), new Range(sty.pos, end)));
             }
           }
         }

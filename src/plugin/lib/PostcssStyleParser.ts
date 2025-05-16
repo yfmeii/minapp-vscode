@@ -9,7 +9,7 @@ let outputChannel: OutputChannel | null = null;
 
 function getOutputChannel(): OutputChannel {
   if (!outputChannel) {
-    outputChannel = window.createOutputChannel('Minapp BEM Debug');
+    outputChannel = window.createOutputChannel('Minapp Style Debug');
   }
   return outputChannel;
 }
@@ -30,6 +30,11 @@ export interface BemStyle {
     file: string;     // 源文件路径
     selector: string; // 原始选择器
   };
+  // 添加选择器范围信息
+  selectorRange?: {
+    start: Position;  // 选择器开始位置
+    end: Position;    // 选择器结束位置
+  };
 }
 
 // 缓存系统，避免重复解析
@@ -42,6 +47,17 @@ export function isScssFile(file: string): boolean {
   const result = /\.s[ac]ss$/.test(file);
   log(`检查文件 ${file} 是否为SCSS文件: ${result}`);
   return result;
+}
+
+/**
+ * 判断样式文件类型
+ */
+export function getStyleFileType(file: string): 'scss' | 'css' | 'less' | 'wxss' | 'unknown' {
+  if (/\.s[ac]ss$/.test(file)) return 'scss';
+  if (/\.css$/.test(file)) return 'css';
+  if (/\.less$/.test(file)) return 'less';
+  if (/\.wxss$/.test(file)) return 'wxss';
+  return 'unknown';
 }
 
 /**
@@ -92,7 +108,8 @@ function walkRules(
   parentSelectors: string[], 
   styles: BemStyle[],
   filePath: string,
-  comments: { [line: number]: string }
+  comments: { [line: number]: string },
+  content: string
 ): void {
   log(`开始遍历规则，当前父选择器: ${JSON.stringify(parentSelectors)}`);
   
@@ -114,14 +131,35 @@ function walkRules(
     // 保存当前规则的位置，用于生成位置信息
     const source = rule.source;
     const startPosition = source?.start;
+    const endPosition = source?.end;
     
     // 提取所有类名并保存
-    if (startPosition) {
+    if (startPosition && endPosition) {
       const position = new Position(startPosition.line - 1, startPosition.column - 1);
       log(`规则在文件中的位置: 行=${position.line}, 列=${position.character}`);
       
+      // 获取选择器声明的精确范围，避免包含伪元素和嵌套规则
+      let selectorRange = getSelectorDeclarationRange(rule, content);
+      
+      if (!selectorRange) {
+        log(`无法确定选择器声明范围，将使用默认范围`);
+        // 使用默认范围（整个规则块）
+        selectorRange = {
+          start: new Position(startPosition.line - 1, startPosition.column - 1),
+          end: new Position(endPosition.line - 1, endPosition.column - 1)
+        };
+      } else {
+        log(`使用精确的选择器声明范围: 从 (${selectorRange.start.line}, ${selectorRange.start.character}) 到 (${selectorRange.end.line}, ${selectorRange.end.character})`);
+      }
+      
       // 提取当前选择器中定义的类名
       for (const normalizedSelector of normalizedSelectors) {
+        // 过滤掉包含伪元素的选择器（如 ::after）
+        if (normalizedSelector.includes('::') || normalizedSelector.includes(':before') || normalizedSelector.includes(':after')) {
+          log(`跳过伪元素选择器: ${normalizedSelector}`);
+          continue;
+        }
+        
         const classNames = extractClassNames(normalizedSelector);
         
         // 获取当前规则的注释
@@ -139,9 +177,10 @@ function walkRules(
             source: {
               file: filePath,
               selector: normalizedSelector
-            }
+            },
+            selectorRange: selectorRange
           });
-          log(`添加类名: '${name}', 位置: 行=${position.line}, 列=${position.character}`);
+          log(`添加类名: '${name}', 位置: 行=${position.line}, 列=${position.character}, 选择器范围: ${selectorRange.start.line}:${selectorRange.start.character} - ${selectorRange.end.line}:${selectorRange.end.character}`);
         }
       }
     }
@@ -149,7 +188,7 @@ function walkRules(
     // 如果规则有子节点，递归处理
     if (rule.nodes && rule.nodes.length > 0) {
       log(`递归处理嵌套规则，父选择器: ${JSON.stringify(normalizedSelectors)}`);
-      walkRules(rule, normalizedSelectors, styles, filePath, comments);
+      walkRules(rule, normalizedSelectors, styles, filePath, comments, content);
     }
   });
 }
@@ -178,10 +217,67 @@ function extractComments(content: string): { [line: number]: string } {
 }
 
 /**
- * 解析 SCSS 文件，提取所有 BEM 风格的类名
+ * 获取选择器声明的精确范围（从选择器开始到第一个大括号）
+ * 避免选中整个嵌套规则块，尤其是包含伪元素的情况
  */
-export function parseScssBem(filePath: string): BemStyle[] {
-  log(`开始解析SCSS文件: ${filePath}`);
+function getSelectorDeclarationRange(
+  rule: postcss.Rule,
+  content: string
+): { start: Position, end: Position } | undefined {
+  const source = rule.source;
+  const startPosition = source?.start;
+  const endPosition = source?.end;
+  
+  if (!startPosition || !endPosition) {
+    return undefined;
+  }
+  
+  // 选择器开始位置
+  const start = new Position(startPosition.line - 1, startPosition.column - 1);
+  
+  // 默认结束位置（作为备用）
+  let end = new Position(endPosition.line - 1, endPosition.column - 1);
+  
+  try {
+    // 获取规则在原始文本中的位置
+    const ruleText = rule.toString();
+    // 计算规则在原始文本中的偏移量
+    const ruleStartOffset = content.indexOf(ruleText, startPosition.offset || 0);
+    
+    if (ruleStartOffset !== -1) {
+      // 找到第一个大括号的位置
+      const openBraceOffset = content.indexOf('{', ruleStartOffset);
+      
+      if (openBraceOffset !== -1) {
+        // 计算大括号在整个文本中的行列位置
+        const beforeBrace = content.substring(0, openBraceOffset);
+        const lineBreaks = beforeBrace.match(/\n/g) || [];
+        const braceLineNumber = lineBreaks.length;
+        
+        // 找到大括号所在行的开始位置
+        const lastLineBreakOffset = beforeBrace.lastIndexOf('\n');
+        const braceColumnNumber = lastLineBreakOffset === -1 
+          ? openBraceOffset 
+          : openBraceOffset - lastLineBreakOffset - 1;
+        
+        // 设置选择器声明的结束位置（大括号的位置）
+        end = new Position(braceLineNumber, braceColumnNumber);
+        
+        log(`计算选择器声明范围: 从 (${start.line}, ${start.character}) 到 (${end.line}, ${end.character})`);
+      }
+    }
+  } catch (error) {
+    log(`计算选择器声明范围失败: ${error}`);
+  }
+  
+  return { start, end };
+}
+
+/**
+ * 通用的样式文件解析函数，使用PostCSS处理各种样式文件
+ */
+export function parseStyleWithPostcss(filePath: string): BemStyle[] {
+  log(`开始使用PostCSS解析样式文件: ${filePath}`);
   try {
     // 检查缓存
     const stats = fs.statSync(filePath);
@@ -199,19 +295,32 @@ export function parseScssBem(filePath: string): BemStyle[] {
     // 提取注释
     const comments = extractComments(content);
     
-    // 使用 PostCSS 解析 SCSS
-    log(`使用 PostCSS 解析 SCSS 内容`);
+    // 根据文件类型选择不同的解析器
+    const fileType = getStyleFileType(filePath);
+    log(`文件类型: ${fileType}`);
+    
+    // 创建PostCSS处理器
     const processor = postcss();
-    const result = processor.process(content, { 
-      from: filePath,
-      parser: postcssScss as any
-    });
+    
+    // 根据文件类型选择解析器
+    let result;
+    if (fileType === 'scss') {
+      result = processor.process(content, { 
+        from: filePath,
+        parser: postcssScss as any
+      });
+    } else {
+      // 默认使用标准CSS解析器
+      result = processor.process(content, { 
+        from: filePath
+      });
+    }
     
     const styles: BemStyle[] = [];
     
     // 开始解析
     log(`开始遍历规则树`);
-    walkRules(result.root, [], styles, filePath, comments);
+    walkRules(result.root, [], styles, filePath, comments, content);
     
     // 更新缓存
     fileCache[filePath] = {
@@ -227,8 +336,15 @@ export function parseScssBem(filePath: string): BemStyle[] {
     
     return styles;
   } catch (error) {
-    log(`解析 SCSS 文件失败: ${filePath}, 错误: ${error}`);
-    console.error(`解析 SCSS 文件失败: ${filePath}`, error);
+    log(`解析样式文件失败: ${filePath}, 错误: ${error}`);
+    console.error(`解析样式文件失败: ${filePath}`, error);
     return [];
   }
+}
+
+/**
+ * 解析 SCSS 文件，提取所有 BEM 风格的类名（保留兼容性）
+ */
+export function parseScssBem(filePath: string): BemStyle[] {
+  return parseStyleWithPostcss(filePath);
 } 
